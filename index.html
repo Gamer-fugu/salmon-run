@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Salmon Run - Wave Countdown Edition</title>
+    <style>
+        * { -webkit-user-select: none; user-select: none; touch-action: none; }
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; background: #2b1d14; cursor: crosshair; }
+        
+        #ui, #how-to-ui {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: rgba(0,0,0,0.95); color: white; z-index: 100;
+        }
+        
+        h1 { color: #ff8c00; font-size: 60px; margin-bottom: 5px; letter-spacing: 5px; text-align: center; }
+        #objective-text { color: #ffff00; font-size: 18px; margin-bottom: 35px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; max-width: 80%; text-align: center; }
+        
+        .menu-btns { display: flex; gap: 20px; }
+        
+        button {
+            padding: 15px 40px; font-size: 22px; cursor: pointer;
+            background: #ff8c00; border: 4px solid #fff; color: #fff; font-weight: bold;
+            transition: transform 0.1s, background 0.2s;
+        }
+        button:hover { background: #e67e00; }
+        button:active { transform: scale(0.95); }
+        
+        #how-to-ui { background: rgba(10, 10, 10, 0.98); text-align: left; align-items: flex-start; padding: 50px; box-sizing: border-box; }
+        .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%; max-width: 900px; margin: 0 auto; }
+        .inst-card b { color: #ff8c00; font-size: 24px; }
+        .inst-card p { color: #ccc; line-height: 1.6; font-size: 18px; }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h1 id="t">SALMON RUN</h1>
+        <p id="objective-text">Collect Golden Eggs from Bosses to reach the Quota and survive for 100 second. Good luck!</p>
+        <div class="menu-btns">
+            <button id="btn-start">START WORK</button>
+            <button id="btn-how">HOW TO PLAY</button>
+        </div>
+    </div>
+
+    <div id="how-to-ui" class="hidden">
+        <h1 style="align-self: center; margin-bottom: 30px;">EMPLOYEE MANUAL</h1>
+        <div class="inst-grid">
+            <div class="inst-card">
+                <b>[WASD] MOVE</b>
+                <p>Traverse the map. Enemies' ink will slows you down. Stay on your own color!</p>
+            </div>
+            <div class="inst-card">
+                <b>[LMB] SHOOT</b>
+                <p>Splat the Salmons. Use ink to claim territory and create paths.</p>
+            </div>
+            <div class="inst-card">
+                <b>[HOLD RMB] SWIM</b>
+                <p>Swim in your ink to move fast, <b>refill ink</b>, and <b>heal</b>.</p>
+            </div>
+            <div class="inst-card">
+                <b>[DEATH = DEFEAT]</b>
+                <p>If your HP hits 0, you lose instantly. <b>Survival is mandatory!</b></p>
+            </div>
+            <div class="inst-card">
+                <b>[INK TANK & HP]</b>
+                <p>Your remaining ink and hp will be shown on <b>top right corner</b>.</p>
+            </div>
+            <div class="inst-card">
+                <b>[Good luck!]</b>
+            </div>
+        </div>
+        <button id="btn-back" style="align-self: center; margin-top: 40px;">RETURN</button>
+    </div>
+
+    <canvas id="g"></canvas>
+
+<script>
+const cvs = document.getElementById('g');
+const ctx = cvs.getContext('2d');
+const ui = document.getElementById('ui');
+const howToUi = document.getElementById('how-to-ui');
+const btnStart = document.getElementById('btn-start');
+const btnHow = document.getElementById('btn-how');
+const btnBack = document.getElementById('btn-back');
+const txt = document.getElementById('t');
+const objTxt = document.getElementById('objective-text');
+
+let state = 0; 
+let wx = 0, wy = 0, mx = 0, my = 0, hp = 100, ink = 75, eggs = 0, wave = 1, time = 100;
+let isL = false, isR = false, lastS = 0, waitT = 0, holdingEgg = false, eggTimer = 0;
+let bossesSpawned = 0;
+let grid = {}, salmons = [], bullets = [], goldPool = [];
+const keys = {};
+
+const resize = () => { cvs.width = window.innerWidth; cvs.height = window.innerHeight; };
+window.addEventListener('resize', resize);
+resize();
+
+btnHow.onclick = () => { ui.classList.add('hidden'); howToUi.classList.remove('hidden'); };
+btnBack.onclick = () => { howToUi.classList.add('hidden'); ui.classList.remove('hidden'); };
+
+btnStart.onclick = () => {
+    if (state === 0) { wave = 1; startWave(); } 
+    else if (state === 2) {
+        state = 0;
+        txt.innerText = "SALMON RUN";
+        txt.style.color = "#ff8c00";
+        objTxt.classList.remove('hidden'); 
+        btnStart.innerText = "START WORK";
+        btnHow.classList.remove('hidden');
+    }
+};
+
+window.addEventListener('mousedown', e => { if (state === 1) { if (e.button === 0) isL = true; if (e.button === 2) isR = true; }});
+window.addEventListener('mouseup', e => { if (e.button === 0) isL = false; if (e.button === 2) isR = false; });
+window.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+window.oncontextmenu = e => e.preventDefault();
+
+function startWave() {
+    wx = 0; wy = 0; hp = 100; ink = 75; eggs = 0; holdingEgg = false; eggTimer = 0;
+    bossesSpawned = 0; salmons = []; bullets = []; goldPool = []; grid = {};
+    intermission();
+}
+
+function intermission() {
+    state = 3; waitT = 3; ui.classList.add('hidden'); howToUi.classList.add('hidden');
+    let i = setInterval(() => {
+        waitT--;
+        if (waitT <= 0) { clearInterval(i); state = 1; time = 100; spawnLoop(); timerLoop(); }
+    }, 1000);
+}
+
+function spawnLoop() {
+    if (state !== 1) return;
+    const q = 5 + (wave - 1) * 3;
+    const req = q + wave;
+    let force = (bossesSpawned < req) && (Math.random() > 0.5 || time < 50);
+    let isBoss = Math.random() > 0.75 || force;
+    if (isBoss) bossesSpawned++;
+    const a = Math.random() * Math.PI * 2;
+    salmons.push({ x: wx + Math.cos(a) * 800, y: wy + Math.sin(a) * 800, hp: isBoss ? 350 : 90, s: isBoss ? 55 : 30, spd: isBoss ? 1.7 : 2.5, f: 0, isBoss: isBoss });
+    setTimeout(spawnLoop, 2800 / Math.pow(1.25, wave - 1));
+}
+
+function timerLoop() {
+    if (state !== 1) return;
+    time--;
+    if (holdingEgg) { eggTimer -= 1; if (eggTimer <= 0) holdingEgg = false; }
+    for (let i = goldPool.length - 1; i >= 0; i--) { goldPool[i].life -= 1; if (goldPool[i].life <= 0) goldPool.splice(i, 1); }
+    if (time <= 0) finish();
+    else setTimeout(timerLoop, 1000);
+}
+
+function finish() {
+    const q = 5 + (wave - 1) * 3;
+    if (eggs >= q) {
+        if (wave < 3) { wave++; startWave(); }
+        else end("MISSION COMPLETE", "#ffff00");
+    } else {
+        end("QUOTA NOT MET", "#ff4444");
+    }
+}
+
+function playerDied() { end("WIPED OUT", "#ff0000"); }
+
+function end(m, c) { 
+    state = 2; 
+    ui.classList.remove('hidden'); 
+    txt.innerText = m; 
+    txt.style.color = c; 
+    objTxt.classList.add('hidden'); 
+    btnHow.classList.add('hidden'); 
+    btnStart.innerText = "BACK TO MENU"; 
+}
+
+function update() {
+    if (state !== 1) return;
+    const cx = cvs.width/2, cy = cvs.height/2;
+    const gk = Math.floor(wx/25) + "," + Math.floor(wy/25);
+    let spd = 3.8; 
+    
+    if (isR) {
+        if (grid[gk] === 'o') { spd = 7.5; ink = Math.min(75, ink + 1.1); hp = Math.min(100, hp + 0.3); } 
+        else spd = 1.3;
+    } else {
+        if (grid[gk] === 'g') spd = 1.8;
+        if (!isL) ink = Math.min(75, ink + 0.15);
+    }
+    
+    if (keys['KeyW']) wy -= spd; if (keys['KeyS']) wy += spd;
+    if (keys['KeyA']) wx -= spd; if (keys['KeyD']) wx += spd;
+
+    if (isL && !isR && ink >= 2 && Date.now() - lastS > 110) {
+        const a = Math.atan2(my - cy, mx - cx);
+        bullets.push({ x: wx, y: wy, vx: Math.cos(a)*16, vy: Math.sin(a)*16, l: 22 });
+        ink -= 2.5; lastS = Date.now();
+    }
+
+    bullets.forEach((b, i) => {
+        b.x += b.vx; b.y += b.vy; b.l--;
+        grid[Math.floor(b.x/25) + "," + Math.floor(b.y/25)] = 'o';
+        if (b.l <= 0) bullets.splice(i, 1);
+    });
+
+    salmons.forEach((n, i) => {
+        const a = Math.atan2(wy - n.y, wx - n.x);
+        n.x += Math.cos(a) * n.spd; n.y += Math.sin(a) * n.spd;
+        grid[Math.floor(n.x/25) + "," + Math.floor(n.y/25)] = 'g';
+        if (Math.hypot(wx - n.x, wy - n.y) < n.s/2 + 10) hp -= 1.0;
+        if (n.f > 0) n.f--;
+        bullets.forEach((b, bi) => {
+            if (Math.hypot(b.x - n.x, b.y - n.y) < n.s/2 + 10) {
+                n.hp -= 45; n.f = 3; bullets.splice(bi, 1);
+                if (n.hp <= 0) { if(n.isBoss) goldPool.push({x: n.x, y: n.y, life: 20}); salmons.splice(i, 1); }
+            }
+        });
+    });
+
+    goldPool.forEach((g, i) => { if (!holdingEgg && Math.hypot(wx - g.x, wy - g.y) < 30) { holdingEgg = true; eggTimer = 20; goldPool.splice(i, 1); } });
+    if (holdingEgg && Math.hypot(wx, wy) < 50) { eggs++; holdingEgg = false; }
+    
+    if (hp <= 0) playerDied();
+}
+
+function draw() {
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    if (state === 0) return;
+    const cx = cvs.width/2, cy = cvs.height/2;
+
+    for (let k in grid) {
+        const parts = k.split(',');
+        const px = parseInt(parts[0])*25-wx+cx, py = parseInt(parts[1])*25-wy+cy;
+        if(px > -30 && px < cvs.width + 30 && py > -30 && py < cvs.height + 30) {
+            ctx.fillStyle = grid[k] === 'o' ? '#ff8c00' : '#4a6b2f';
+            ctx.fillRect(px, py, 26, 26);
+        }
+    }
+
+    ctx.strokeStyle = 'gold'; ctx.lineWidth = 5; ctx.strokeRect(-wx+cx-40, -wy+cy-40, 80, 80);
+    goldPool.forEach(g => { 
+        if (g.life > 5 || Date.now() % 200 < 100) {
+            ctx.fillStyle='#ffff00'; ctx.beginPath(); ctx.arc(g.x-wx+cx, g.y-wy+cy, 12, 0, 7); ctx.fill(); 
+            ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+        }
+    });
+
+    salmons.forEach(s => { 
+        ctx.fillStyle=s.f?'#fff':(s.isBoss?'#222':'#555'); 
+        ctx.fillRect(s.x-wx+cx-s.s/2, s.y-wy+cy-s.s/2, s.s, s.s); 
+    });
+
+    bullets.forEach(b => { ctx.fillStyle='#ffa500'; ctx.beginPath(); ctx.arc(b.x-wx+cx, b.y-wy+cy, 8, 0, 7); ctx.fill(); });
+
+    ctx.save(); ctx.translate(cx, cy);
+    const gk = Math.floor(wx/25) + "," + Math.floor(wy/25);
+    const isSwimming = isR && grid[gk] === 'o';
+    if (!isSwimming) {
+        ctx.rotate(Math.atan2(my-cy, mx-cx));
+        ctx.fillStyle = holdingEgg ? '#ffff00' : '#ff8c00'; 
+        ctx.beginPath(); ctx.arc(0,0,20,0,7); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.fillRect(10, -9, 5, 5); ctx.fillRect(10, 4, 5, 5);
+    } else {
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0,0,14,0,7); ctx.stroke();
+    }
+    ctx.restore();
+
+    if (holdingEgg) {
+        ctx.fillStyle = '#333'; ctx.fillRect(cx - 20, cy - 40, 40, 6);
+        ctx.fillStyle = eggTimer > 5 ? '#ffff00' : '#ff0000';
+        ctx.fillRect(cx - 20, cy - 40, (eggTimer / 20) * 40, 6);
+    }
+
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(15, 15, 320, 80);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 20px monospace';
+    ctx.fillText(`WAVE ${wave} | QUOTA: ${eggs}/${5+(wave-1)*3}`, 25, 45);
+    ctx.fillText(`TIME: ${time}s`, 25, 75);
+    ctx.fillStyle = '#333'; ctx.fillRect(cvs.width-220, 25, 200, 20);
+    ctx.fillStyle = hp < 30 ? 'red' : '#0f0'; ctx.fillRect(cvs.width-220, 25, hp*2, 20);
+    ctx.fillStyle = '#333'; ctx.fillRect(cvs.width-220, 55, 200, 20);
+    ctx.fillStyle = '#ff8c00'; ctx.fillRect(cvs.width-220, 55, (ink/75)*200, 20);
+    
+    // NEW COUNTDOWN DRAWING
+    if (state === 3) { 
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff'; 
+        ctx.font = 'bold 40px monospace';
+        ctx.fillText(`WAVE ${wave}`, cx, cy - 80); // Wave label
+        
+        ctx.fillStyle = '#ff8c00'; 
+        ctx.font = 'bold 120px monospace'; 
+        ctx.fillText(waitT, cx, cy + 20); // Countdown number
+        ctx.textAlign = 'start'; 
+    }
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
